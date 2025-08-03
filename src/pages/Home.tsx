@@ -1,24 +1,31 @@
+// src/pages/Home.tsx
+
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Mail, Settings, MapPin, Clock, Users } from 'lucide-react';
+import { Plus, Search, Mail, Settings, MapPin, Users, User, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-// ... imports
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 
 const Home = () => {
-  const [user, setUser] = useState({
+  const [currentUser, setCurrentUser] = useState({
     name: "Loading...",
     regNo: "Loading...",
     initials: "",
-    hasActiveTrip: false,
   });
+  const [stats, setStats] = useState({
+    activeTrips: "0",
+    successfulMatches: "0",
+    avgBufferTime: "0 min",
+  });
+  const [loadingStats, setLoadingStats] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser && currentUser.displayName) {
-        let fullName = currentUser.displayName;
+    const unsubscribe = onAuthStateChanged(auth, (currentUserAuth) => {
+      if (currentUserAuth && currentUserAuth.displayName) {
+        let fullName = currentUserAuth.displayName;
         let registrationNumber = '';
 
         const regNumberMatch = fullName.match(/\(([^)]+)\)/);
@@ -27,63 +34,89 @@ const Home = () => {
           fullName = fullName.replace(/\s*\(([^)]+)\)/, '').trim();
         }
 
-        setUser({
+        setCurrentUser({
           name: fullName,
           regNo: registrationNumber,
           initials: fullName.split(' ').map(n => n[0]).join(''),
-          hasActiveTrip: false,
         });
       } else {
-        // Handle case where there is no user
-        setUser({ name: "Guest", regNo: "", initials: "G", hasActiveTrip: false });
+        setCurrentUser({ name: "Guest", regNo: "", initials: "G" });
       }
     });
 
+    const fetchStats = async () => {
+      try {
+        const tripsQuery = query(collection(db, "trips"));
+        const matchesQuery = query(collection(db, "requests"), where("status", "==", "accepted"));
+        
+        const [tripsSnapshot, matchesSnapshot] = await Promise.all([
+          getDocs(tripsQuery),
+          getDocs(matchesQuery)
+        ]);
+        
+        // Calculate average buffer time
+        let totalBuffer = 0;
+        let tripsWithBuffer = 0;
+        tripsSnapshot.forEach(doc => {
+          const trip = doc.data();
+          if (trip.buffer && typeof trip.buffer === 'string') {
+            const bufferMinutes = parseInt(trip.buffer, 10);
+            if (!isNaN(bufferMinutes)) {
+              totalBuffer += bufferMinutes;
+              tripsWithBuffer++;
+            }
+          }
+        });
+        const avgBuffer = tripsWithBuffer > 0 ? Math.round(totalBuffer / tripsWithBuffer) : 0;
+
+        setStats({
+          activeTrips: tripsSnapshot.size.toLocaleString(),
+          successfulMatches: matchesSnapshot.size.toLocaleString(),
+          avgBufferTime: `${avgBuffer} min`
+        });
+
+      } catch (error) {
+        console.error("Error fetching stats:", error);
+      } finally {
+        setLoadingStats(false);
+      }
+    };
+    
+    fetchStats();
     return () => unsubscribe();
   }, []);
 
-  // ... rest of the component
-  // ... (rest of the component is the same)
-
   const quickActions = [
-    {
-      title: "Create New Trip",
-      description: "Plan your airport journey",
-      icon: Plus,
-      link: "/trip-info",
-      color: "from-blue-500 to-blue-600",
-      glow: "glow-blue"
-    },
     {
       title: "Find Matches",
       description: "Browse available trips",
       icon: Search,
       link: "/matches",
-      color: "from-cyan-500 to-cyan-600",
-      glow: "glow-cyan"
     },
     {
       title: "My Requests",
-      description: "Manage sent/received requests",
+      description: "Manage your requests",
       icon: Mail,
       link: "/requests",
-      color: "from-purple-500 to-purple-600",
-      glow: "glow-purple"
+    },
+    {
+      title: "My Profile",
+      description: "View your user profile",
+      icon: User,
+      link: "/profile",
     },
     {
       title: "Settings",
       description: "Update your preferences",
       icon: Settings,
       link: "/settings",
-      color: "from-emerald-500 to-emerald-600",
-      glow: "glow-emerald"
     }
   ];
 
-  const stats = [
-    { label: "Active Trips", value: "247", icon: MapPin },
-    { label: "Successful Matches", value: "1,234", icon: Users },
-    { label: "Avg. Wait Time", value: "12 min", icon: Clock }
+  const statCards = [
+    { label: "Active Trips", value: loadingStats ? "..." : stats.activeTrips, icon: MapPin },
+    { label: "Successful Matches", value: loadingStats ? "..." : stats.successfulMatches, icon: Users },
+    { label: "Avg. Buffer Time", value: loadingStats ? "..." : stats.avgBufferTime, icon: Clock },
   ];
 
   return (
@@ -94,7 +127,7 @@ const Home = () => {
             Welcome to CAB POOL
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Share airport rides with fellow SRM students and save money on your journey
+            Share airport rides with fellow SRM students and save money
           </p>
         </div>
         
@@ -102,19 +135,19 @@ const Home = () => {
           <div className="flex items-center space-x-3">
             <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
               <span className="text-lg font-bold text-white">
-                {user.initials}
+                {currentUser.initials}
               </span>
             </div>
             <div className="text-left">
-              <p className="font-semibold text-foreground">{user.name}</p>
-              <p className="text-sm text-muted-foreground">{user.regNo}</p>
+              <p className="font-semibold text-foreground">{currentUser.name}</p>
+              <p className="text-sm text-muted-foreground">{currentUser.regNo}</p>
             </div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {stats.map((stat, index) => (
+        {statCards.map((stat, index) => (
           <Card key={index} className="glass glass-hover border-0">
             <CardContent className="p-6 text-center">
               <stat.icon className="h-8 w-8 text-primary mx-auto mb-2" />
@@ -125,48 +158,33 @@ const Home = () => {
         ))}
       </div>
 
-      {user.hasActiveTrip ? (
-        <Card className="glass border-0 animate-pulse-glow">
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <MapPin className="h-5 w-5 text-primary" />
-              <span>Your Active Trip</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground">No active trip details available</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="glass glass-hover border-0">
-          <CardContent className="p-8 text-center">
+      <Card className="glass glass-hover border-0">
+        <CardContent className="p-8 text-center">
+          <Link to="/trip-info" className="block group">
             <div className="space-y-4">
-              <div className="h-16 w-16 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center mx-auto">
-                <Plus className="h-8 w-8 text-primary" />
-              </div>
-              <div>
-                <h3 className="text-xl font-semibold text-foreground mb-2">No Active Trip</h3>
-                <p className="text-muted-foreground mb-4">
-                  Ready to share a ride? Create your first trip and find travel companions.
-                </p>
-                <Button asChild className="bg-gradient-to-r from-primary to-accent hover:from-primary/80 hover:to-accent/80 text-white font-medium px-8 py-3 rounded-xl transition-all duration-300 glow-blue">
-                  <Link to="/trip-info">Create New Trip</Link>
-                </Button>
-              </div>
+                <div className="h-16 w-16 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform duration-300">
+                  <Plus className="h-8 w-8 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-semibold text-foreground mb-2 group-hover:text-primary transition-colors">Create New Trip</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Ready to share a ride? Create your first trip and find travel companions.
+                  </p>
+                </div>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </Link>
+        </CardContent>
+      </Card>
 
       <div className="space-y-4">
         <h2 className="text-2xl font-bold text-center gradient-text">Quick Actions</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
           {quickActions.map((action, index) => (
             <Link key={index} to={action.link} className="block group">
               <Card className="glass glass-hover border-0 h-full transition-transform duration-300 group-hover:scale-105">
                 <CardContent className="p-6 text-center space-y-4">
-                  <div className={`h-16 w-16 rounded-2xl bg-gradient-to-br ${action.color} flex items-center justify-center mx-auto group-hover:${action.glow} transition-all duration-300`}>
-                    <action.icon className="h-8 w-8 text-white" />
+                  <div className={`h-16 w-16 rounded-2xl bg-gradient-to-br from-primary/10 to-accent/10 flex items-center justify-center mx-auto group-hover:glow-blue transition-all duration-300`}>
+                    <action.icon className="h-8 w-8 text-primary" />
                   </div>
                   <div>
                     <h3 className="font-semibold text-foreground mb-1">{action.title}</h3>

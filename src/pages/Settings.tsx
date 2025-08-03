@@ -1,3 +1,5 @@
+// src/pages/Settings.tsx
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -5,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Settings as SettingsIcon, Phone, User, LogOut } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom'; // Import Link
 import { auth, db } from '@/lib/firebase';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -21,11 +23,9 @@ const Settings = () => {
   const navigate = useNavigate();
 
  useEffect(() => {
-    // This listener waits for Firebase to be ready
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       try {
         if (currentUser) {
-          // Once we have the user, we fetch their data
           let fullName = currentUser.displayName || '';
           let registrationNumber = '';
 
@@ -58,14 +58,12 @@ const Settings = () => {
           variant: "destructive",
         });
       } finally {
-        // This will run after the try/catch is complete
         setLoading(false);
       }
     });
 
-    // Cleanup the listener when the component unmounts
     return () => unsubscribe();
-  }, []); // The empty array ensures this effect runs only once
+  }, []);
   
   const handleUpdateWhatsApp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -214,11 +212,11 @@ const Settings = () => {
             </div>
           </div>
           <div className="flex space-x-4">
-            <Button variant="outline" className="glass border-white/20 hover:bg-white/10">
-              Privacy Policy
+            <Button asChild variant="outline" className="glass border-white/20 hover:bg-white/10">
+              <Link to="/terms">Privacy Policy</Link>
             </Button>
-            <Button variant="outline" className="glass border-white/20 hover:bg-white/10">
-              Terms of Service
+            <Button asChild variant="outline" className="glass border-white/20 hover:bg-white/10">
+              <Link to="/terms">Terms of Service</Link>
             </Button>
           </div>
         </CardContent>

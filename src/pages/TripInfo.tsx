@@ -1,3 +1,4 @@
+// src/pages/TripInfo.tsx
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -7,60 +8,92 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Plane, Clock, Users, AlertCircle } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Plane, AlertCircle, HelpCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useUser } from '../context/UserContext';
+import { db } from '@/lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 const TripInfo = () => {
   const navigate = useNavigate();
+  const { user } = useUser();
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     direction: '',
-    flightDate: '',
-    flightTime: '',
-    timeBuffer: ''
+    date: '',
+    time: '',
+    buffer: '',
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate required fields
-    const requiredFields = ['direction', 'flightDate', 'flightTime', 'timeBuffer'];
-    const missingFields = requiredFields.filter(field => !formData[field]);
+    if (!user) {
+      toast({ title: "Authentication Error", description: "You must be logged in to create a trip.", variant: "destructive" });
+      return;
+    }
+
+    const requiredFields: (keyof typeof formData)[] = ['direction', 'date', 'time', 'buffer'];
+    const missingField = requiredFields.find(field => !formData[field]);
     
-    if (missingFields.length > 0) {
+    if (missingField) {
       toast({
         title: "Missing Information",
-        description: "Please fill in all required fields.",
+        description: `Please fill in all required fields.`,
         variant: "destructive"
       });
       return;
     }
 
-    // Simulate trip creation
-    toast({
-      title: "Trip Created Successfully!",
-      description: "Your trip has been created and is now visible to potential matches.",
-    });
-    
-    navigate('/matches');
+    setIsLoading(true);
+    try {
+      await addDoc(collection(db, "trips"), {
+        hostUid: user.uid,
+        name: user.fullName,
+        direction: formData.direction,
+        date: formData.date,
+        time: formData.time,
+        buffer: formData.buffer,
+        details: "", // Details field is now empty
+        status: "open",
+        createdAt: serverTimestamp(),
+      });
+
+      toast({
+        title: "Trip Created Successfully!",
+        description: "Your trip is now visible to other students.",
+      });
+      
+      navigate('/matches');
+
+    } catch (error) {
+      console.error("Error creating trip:", error);
+      toast({
+        title: "Error",
+        description: "Could not create your trip. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const getTimeLabel = () => {
-    if (formData.direction === 'to-airport') {
-      return 'Flight Take-Off Time';
-    } else if (formData.direction === 'from-airport') {
-      return 'Flight Landing Time';
+    if (formData.direction.includes('Airport')) {
+      return formData.direction.startsWith('College') ? 'Flight Take-Off Time' : 'Flight Landing Time';
+    } else if (formData.direction.includes('Station')) {
+       return formData.direction.startsWith('College') ? 'Train Departure Time' : 'Train Arrival Time';
     }
-    return 'Flight Time';
+    return 'Time';
   };
 
-  const getBufferLabel = () => {
-    if (formData.direction === 'to-airport') {
-      return 'Preferred Arrival Time at Airport';
-    } else if (formData.direction === 'from-airport') {
-      return 'Preferred Waiting Time After Landing';
-    }
-    return 'Time Buffer';
-  };
+  const directionOptions = [
+      { value: 'College → Airport', label: 'College → Airport', description: 'Going for a flight'},
+      { value: 'Airport → College', label: 'Airport → College', description: 'Returning from a flight'},
+      { value: 'College → Railway Station', label: 'College → Railway Station', description: 'Catching a train'},
+      { value: 'Railway Station → College', label: 'Railway Station → College', description: 'Arriving by train'},
+  ]
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-20 md:pb-8">
@@ -80,7 +113,6 @@ const TripInfo = () => {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Trip Direction */}
             <div className="space-y-3">
               <Label className="text-base font-medium">Trip Direction *</Label>
               <RadioGroup
@@ -88,86 +120,87 @@ const TripInfo = () => {
                 onValueChange={(value) => setFormData({...formData, direction: value})}
                 className="grid grid-cols-1 md:grid-cols-2 gap-4"
               >
-                <div className="flex items-center space-x-2 glass p-4 rounded-lg cursor-pointer hover:bg-white/10 transition-colors">
-                  <RadioGroupItem value="to-airport" id="to-airport" />
-                  <Label htmlFor="to-airport" className="cursor-pointer flex-1">
-                    <div className="space-y-1">
-                      <div className="font-medium">College → Airport</div>
-                      <div className="text-sm text-muted-foreground">Going home for vacation</div>
+                  {directionOptions.map(opt => (
+                     <div key={opt.value} className="flex items-center space-x-2 glass p-4 rounded-lg cursor-pointer hover:bg-white/10 transition-colors">
+                        <RadioGroupItem value={opt.value} id={opt.value} />
+                        <Label htmlFor={opt.value} className="cursor-pointer flex-1">
+                            <div className="space-y-1">
+                            <div className="font-medium">{opt.label}</div>
+                            <div className="text-sm text-muted-foreground">{opt.description}</div>
+                            </div>
+                        </Label>
                     </div>
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2 glass p-4 rounded-lg cursor-pointer hover:bg-white/10 transition-colors">
-                  <RadioGroupItem value="from-airport" id="from-airport" />
-                  <Label htmlFor="from-airport" className="cursor-pointer flex-1">
-                    <div className="space-y-1">
-                      <div className="font-medium">Airport → College</div>
-                      <div className="text-sm text-muted-foreground">Returning to college</div>
-                    </div>
-                  </Label>
-                </div>
+                  ))}
               </RadioGroup>
             </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                <Label htmlFor="date" className="text-base font-medium">Date *</Label>
+                <Input
+                    id="date"
+                    type="date"
+                    value={formData.date}
+                    onChange={(e) => setFormData({...formData, date: e.target.value})}
+                    className="glass border-white/20 focus:border-primary"
+                    min={new Date().toISOString().split('T')[0]}
+                />
+                </div>
 
-            {/* Flight Date */}
-            <div className="space-y-2">
-              <Label htmlFor="flightDate" className="text-base font-medium">Flight Date *</Label>
-              <Input
-                id="flightDate"
-                type="date"
-                value={formData.flightDate}
-                onChange={(e) => setFormData({...formData, flightDate: e.target.value})}
-                className="glass border-white/20 focus:border-primary"
-                min={new Date().toISOString().split('T')[0]}
-              />
+                <div className="space-y-2">
+                <Label htmlFor="time" className="text-base font-medium">
+                    {getTimeLabel()} *
+                </Label>
+                <Input
+                    id="time"
+                    type="time"
+                    value={formData.time}
+                    onChange={(e) => setFormData({...formData, time: e.target.value})}
+                    className="glass border-white/20 focus:border-primary"
+                />
+                </div>
             </div>
 
-            {/* Flight Time */}
             <div className="space-y-2">
-              <Label htmlFor="flightTime" className="text-base font-medium">
-                {getTimeLabel()} *
-              </Label>
-              <Input
-                id="flightTime"
-                type="time"
-                value={formData.flightTime}
-                onChange={(e) => setFormData({...formData, flightTime: e.target.value})}
-                className="glass border-white/20 focus:border-primary"
-              />
-            </div>
-
-            {/* Time Buffer */}
-            <div className="space-y-2">
-              <Label className="text-base font-medium">
-                {getBufferLabel()} *
-              </Label>
-              <Select value={formData.timeBuffer} onValueChange={(value) => setFormData({...formData, timeBuffer: value})}>
+              <div className="flex items-center space-x-2 mb-2">
+                <Label className="text-base font-medium">Time Buffer *</Label>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="w-64">
+                      <p>
+                        This is the time window before your scheduled departure/arrival. For example, if your trip is at 2 PM and you select a 1-hour buffer, you can be matched with people whose trips are between 1 PM and 2 PM.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <Select value={formData.buffer} onValueChange={(value) => setFormData({...formData, buffer: value})}>
                 <SelectTrigger className="glass border-white/20 focus:border-primary">
-                  <SelectValue placeholder="Select time buffer" />
+                  <SelectValue placeholder="Select your flexible time window" />
                 </SelectTrigger>
                 <SelectContent className="glass border-white/20">
-                  <SelectItem value="30min">30 Minutes</SelectItem>
-                  <SelectItem value="1hour">1 Hour</SelectItem>
-                  <SelectItem value="1.5hour">1 Hour 30 Minutes</SelectItem>
-                  <SelectItem value="2hour">2 Hours</SelectItem>
-                  <SelectItem value="2.5hour">2 Hours 30 Minutes</SelectItem>
-                  <SelectItem value="3hour">3 Hours</SelectItem>
-                  <SelectItem value="3hour+">More than 3 Hours</SelectItem>
+                  <SelectItem value="30 minutes">30 Minutes</SelectItem>
+                  <SelectItem value="60 minutes">1 Hour</SelectItem>
+                  <SelectItem value="90 minutes">1 Hour 30 Minutes</SelectItem>
+                  <SelectItem value="120 minutes">2 Hours</SelectItem>
+                  <SelectItem value="150 minutes">2 Hours 30 Minutes</SelectItem>
+                  <SelectItem value="180 minutes">3 Hours</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-
-            {/* Info Box */}
             <div className="glass p-4 rounded-lg border-l-4 border-primary">
               <div className="flex items-start space-x-3">
                 <AlertCircle className="h-5 w-5 text-primary mt-0.5" />
                 <div className="space-y-1">
                   <p className="font-medium text-primary">Important Notes</p>
-                  <ul className="text-sm text-muted-foreground space-y-1">
-                    <li>• You can only have one active trip at a time</li>
-                    <li>• Each trip allows only one match</li>
-                    <li>• Trip data will be automatically deleted 24 hours after matching</li>
+                  <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                    <li>You can only have one active trip at a time.</li>
+                    <li>Each trip allows only one successful match.</li>
+                    <li>Trip data will be automatically deleted 24 hours after a match.</li>
                   </ul>
                 </div>
               </div>
@@ -175,9 +208,10 @@ const TripInfo = () => {
 
             <Button
               type="submit"
+              disabled={isLoading}
               className="w-full bg-gradient-to-r from-primary to-accent hover:from-primary/80 hover:to-accent/80 text-white font-medium py-3 rounded-xl glow-blue transition-all duration-300"
             >
-              Create Trip
+              {isLoading ? 'Creating Trip...' : 'Create Trip'}
             </Button>
           </form>
         </CardContent>

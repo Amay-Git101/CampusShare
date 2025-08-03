@@ -1,3 +1,5 @@
+// src/App.tsx
+
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,8 +16,9 @@ import Settings from "./pages/Settings";
 import FAQ from "./pages/FAQ";
 import Terms from "./pages/Terms";
 import NotFound from "./pages/NotFound";
+import Chat from "./pages/Chat"; // Import the new Chat component
 import { useState, useEffect } from "react";
-import { UserProvider } from './context/UserContext'; // Import the provider
+import { UserProvider } from './context/UserContext';
 
 const queryClient = new QueryClient();
 
@@ -37,7 +40,7 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <UserProvider> {/* Wrap your router with the UserProvider */}
+        <UserProvider>
           <BrowserRouter>
             {!authenticated ? (
               <Routes>
@@ -54,6 +57,7 @@ const App = () => {
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/faq" element={<FAQ />} />
                   <Route path="/terms" element={<Terms />} />
+                  <Route path="/chat/:chatId" element={<Chat />} /> {/* Add the new chat route */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Layout>

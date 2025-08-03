@@ -1,9 +1,9 @@
+// src/pages/Profile.tsx
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import { User, Mail, Phone, AlertTriangle, CheckCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
@@ -19,7 +19,6 @@ const Profile = () => {
     fullName: "",
     email: "",
     registrationNumber: "",
-    gender: "",
     whatsappNumber: "",
     agreedToTerms: false
   });
@@ -51,11 +50,10 @@ const Profile = () => {
             fullName: fullName,
             email: currentUser.email,
             registrationNumber: registrationNumber.toUpperCase(),
-            gender: userData.gender || "",
             whatsappNumber: userData.whatsappNumber || "",
             agreedToTerms: true 
           });
-          if (userData.gender && userData.whatsappNumber) {
+          if (userData.whatsappNumber) {
             setIsEditing(false);
           } else {
             setIsEditing(true);
@@ -66,7 +64,6 @@ const Profile = () => {
             fullName: fullName,
             email: currentUser.email,
             registrationNumber: registrationNumber.toUpperCase(),
-            gender: '',
             whatsappNumber: '',
             agreedToTerms: false
           }));
@@ -83,10 +80,6 @@ const Profile = () => {
     e.preventDefault();
     if (!user) return;
     
-    if (!formData.gender) {
-      toast({ title: "Missing Information", description: "Please select your gender.", variant: "destructive" });
-      return;
-    }
     if (!formData.whatsappNumber || formData.whatsappNumber.replace(/^\+91-/, '').length !== 10) {
       toast({ title: "Invalid Number", description: "WhatsApp number must be 10 digits.", variant: "destructive" });
       return;
@@ -102,7 +95,6 @@ const Profile = () => {
         email: user.email,
         fullName: formData.fullName,
         registrationNumber: formData.registrationNumber,
-        gender: formData.gender,
         whatsappNumber: formData.whatsappNumber
       }, { merge: true });
 
@@ -143,7 +135,7 @@ const Profile = () => {
           <CardTitle className="flex items-center space-x-2">
             <User className="h-5 w-5 text-primary" />
             <span>Personal Information</span>
-            {!isEditing && formData.gender && <CheckCircle className="h-5 w-5 text-green-400 ml-auto" />}
+            {!isEditing && <CheckCircle className="h-5 w-5 text-green-400 ml-auto" />}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -166,26 +158,7 @@ const Profile = () => {
                 <Input value={formData.email} readOnly className="pl-9 glass border-white/10 bg-white/5 cursor-not-allowed" />
               </div>
             </div>
-
-            <div className="space-y-3">
-              <Label className="text-base font-medium">Gender *</Label>
-              <RadioGroup
-                value={formData.gender}
-                onValueChange={(value) => setFormData({...formData, gender: value})}
-                className="grid grid-cols-2 gap-4"
-                disabled={!isEditing}
-              >
-                <div className={`flex items-center space-x-2 glass p-4 rounded-lg cursor-pointer hover:bg-white/10 transition-colors ${!isEditing ? 'opacity-60' : ''}`}>
-                  <RadioGroupItem value="male" id="male" disabled={!isEditing} />
-                  <Label htmlFor="male" className="cursor-pointer font-medium">Male</Label>
-                </div>
-                <div className={`flex items-center space-x-2 glass p-4 rounded-lg cursor-pointer hover:bg-white/10 transition-colors ${!isEditing ? 'opacity-60' : ''}`}>
-                  <RadioGroupItem value="female" id="female" disabled={!isEditing} />
-                  <Label htmlFor="female" className="cursor-pointer font-medium">Female</Label>
-                </div>
-              </RadioGroup>
-            </div>
-
+            
             <div className="space-y-2">
               <Label htmlFor="whatsapp" className="text-base font-medium">WhatsApp Number *</Label>
               <div className="relative">
@@ -210,8 +183,7 @@ const Profile = () => {
                 <div className="space-y-1">
                   <p className="font-medium text-yellow-500">Important Notice</p>
                   <p className="text-sm text-muted-foreground">
-                    Certain fields cannot be changed later—please verify carefully.
-                    Your gender preference will be used for matching and cannot be modified after saving.
+                    Please verify your details carefully before saving.
                   </p>
                 </div>
               </div>

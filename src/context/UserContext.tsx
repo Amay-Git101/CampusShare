@@ -1,3 +1,4 @@
+// src/context/UserContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
@@ -8,7 +9,6 @@ interface UserProfile {
   fullName: string;
   email: string;
   registrationNumber: string;
-  gender: string;
   whatsappNumber: string;
   initials: string;
 }
@@ -34,13 +34,11 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
           let fullName = '';
           let registrationNumber = '';
 
-          // Prioritize data from Firestore if it exists
           if (userDoc.exists()) {
             const userData = userDoc.data();
             fullName = userData.fullName;
             registrationNumber = userData.registrationNumber;
           } else {
-            // Fallback for new users by parsing displayName
             fullName = currentUser.displayName || 'New User';
             const regMatch = fullName.match(/\(([^)]+)\)/);
             if (regMatch) {
@@ -54,7 +52,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
             fullName,
             registrationNumber,
             email: currentUser.email || '',
-            gender: userDoc.exists() ? userDoc.data().gender : '',
             whatsappNumber: userDoc.exists() ? userDoc.data().whatsappNumber : '',
             initials: fullName.split(' ').map((n: string) => n[0]).join(''),
           });
