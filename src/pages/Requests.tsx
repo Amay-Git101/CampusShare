@@ -9,9 +9,9 @@ import { Send, Inbox, Check, X, MessageSquare, Clock, MapPin, ArrowRight } from 
 import { toast } from '@/hooks/use-toast';
 import { useUser } from '../context/UserContext';
 import { db } from '@/lib/firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 
-// Interface for our request objects
+// Interfaces for our data structures
 interface Request {
   id: string;
   hostName: string;
@@ -20,77 +20,82 @@ interface Request {
   senderUid: string;
   status: 'pending' | 'accepted' | 'rejected';
   tripId: string;
-  tripDetails?: any; 
+  tripDetails?: TripDetails; 
   sentAt: { seconds: number, nanoseconds: number };
+  matchId?: string;
+}
+
+interface TripDetails {
+    direction: string;
+    date: string;
+    time: string;
 }
 
 const Requests = () => {
   const [sentRequests, setSentRequests] = useState<Request[]>([]);
   const [receivedRequests, setReceivedRequests] = useState<Request[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { user, loading: userLoading } = useUser(); // Get loading state from context
   const navigate = useNavigate();
-  const { user } = useUser();
 
   useEffect(() => {
-    if (!user) {
-        if(loading) setLoading(false);
-        return;
+    // **THE FIX:** Wait until the user object is fully loaded before trying to fetch data.
+    if (userLoading || !user) {
+      return; 
     }
 
+    // This function fetches the associated trip details for each request
+    const fetchTripDetails = async (requests: Request[]): Promise<Request[]> => {
+        return Promise.all(requests.map(async (req) => {
+            if (!req.tripId) return req;
+            const tripRef = doc(db, "trips", req.tripId);
+            const tripSnap = await getDoc(tripRef);
+            return tripSnap.exists() ? { ...req, tripDetails: tripSnap.data() as TripDetails } : req;
+        }));
+    };
+
+    // --- Set up REAL-TIME listeners ---
+
+    // Listener for requests RECEIVED by the current user
     const receivedQuery = query(collection(db, "requests"), where("hostUid", "==", user.uid));
-    const unsubscribeReceived = onSnapshot(receivedQuery, (snapshot) => {
+    const unsubscribeReceived = onSnapshot(receivedQuery, async (snapshot) => {
       const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Request));
-      setReceivedRequests(requestsData);
-      setLoading(false);
-    }, (error) => {
-        console.error("Error fetching received requests:", error);
-        setLoading(false);
+      const withDetails = await fetchTripDetails(requestsData);
+      setReceivedRequests(withDetails);
     });
 
+    // Listener for requests SENT by the current user
     const sentQuery = query(collection(db, "requests"), where("senderUid", "==", user.uid));
-    const unsubscribeSent = onSnapshot(sentQuery, (snapshot) => {
+    const unsubscribeSent = onSnapshot(sentQuery, async (snapshot) => {
       const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Request));
-      setSentRequests(requestsData);
-      setLoading(false);
-    }, (error) => {
-        console.error("Error fetching sent requests:", error);
-        setLoading(false);
+      const withDetails = await fetchTripDetails(requestsData);
+      setSentRequests(withDetails);
     });
 
+    // Cleanup listeners when the component unmounts
     return () => {
       unsubscribeReceived();
       unsubscribeSent();
     };
-  }, [user, loading]);
+  }, [user, userLoading]); // Re-run this effect when the user or loading state changes
 
   const handleAcceptRequest = async (requestToAccept: Request) => {
     if (!user) return;
-
     const batch = writeBatch(db);
-    
-    // 1. Create a new match document
     const matchRef = doc(collection(db, "matches"));
+    
     batch.set(matchRef, {
         tripId: requestToAccept.tripId,
         users: [requestToAccept.hostUid, requestToAccept.senderUid],
-        userNames: {
-            [requestToAccept.hostUid]: requestToAccept.hostName,
-            [requestToAccept.senderUid]: requestToAccept.senderName,
-        },
+        userNames: { [requestToAccept.hostUid]: requestToAccept.hostName, [requestToAccept.senderUid]: requestToAccept.senderName },
         createdAt: serverTimestamp(),
-        hostNumberRevealed: false,
-        senderNumberRevealed: false,
     });
-
-    // 2. Update the accepted request's status and add matchId
+    
     const acceptedReqRef = doc(db, "requests", requestToAccept.id);
     batch.update(acceptedReqRef, { status: "accepted", matchId: matchRef.id });
 
-    // 3. Update the main trip's status to 'matched'
     const tripRef = doc(db, "trips", requestToAccept.tripId);
     batch.update(tripRef, { status: "matched" });
     
-    // 4. Reject all other pending requests for this trip
     receivedRequests
         .filter(req => req.tripId === requestToAccept.tripId && req.id !== requestToAccept.id && req.status === 'pending')
         .forEach(req => {
@@ -100,10 +105,7 @@ const Requests = () => {
 
     try {
         await batch.commit();
-        toast({
-            title: "Match Created!",
-            description: `Your match with ${requestToAccept.senderName} is confirmed.`,
-        });
+        toast({ title: "Match Created!", description: `Your match with ${requestToAccept.senderName} is confirmed.` });
         navigate(`/chat/${matchRef.id}`, { state: { otherUserName: requestToAccept.senderName } });
     } catch (error) {
         console.error("Error accepting request: ", error);
@@ -115,17 +117,12 @@ const Requests = () => {
     const reqRef = doc(db, "requests", requestId);
     try {
         await updateDoc(reqRef, { status: 'rejected' });
-        toast({
-            title: "Request Declined",
-            description: `Request from ${senderName} has been declined.`,
-            variant: "destructive"
-        });
+        toast({ title: "Request Declined", description: `Request from ${senderName} has been declined.`, variant: "destructive" });
     } catch (error) {
         console.error("Error rejecting request: ", error);
         toast({ title: "Error", description: "Could not decline the request.", variant: "destructive" });
     }
   };
-
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -143,12 +140,12 @@ const Requests = () => {
     }
   };
   
-  const formatDate = (timestamp: { seconds: number }) => {
+  const formatDate = (timestamp: { seconds: number } | undefined) => {
       if (!timestamp) return '...';
       return new Date(timestamp.seconds * 1000).toLocaleString();
   }
 
-  if (loading) {
+  if (userLoading) {
     return <div className="text-center text-white p-10">Loading your requests...</div>;
   }
 
@@ -158,7 +155,6 @@ const Requests = () => {
         <h1 className="text-3xl font-bold gradient-text">My Requests</h1>
         <p className="text-muted-foreground">Manage your sent and received trip requests</p>
       </div>
-
       <Tabs defaultValue="received" className="w-full">
         <TabsList className="grid w-full grid-cols-2 glass border-white/20">
           <TabsTrigger value="received">
@@ -170,9 +166,8 @@ const Requests = () => {
             <span>Sent ({sentRequests.filter(r => r.status === 'pending').length})</span>
           </TabsTrigger>
         </TabsList>
-
         <TabsContent value="received" className="space-y-4 mt-4">
-          {receivedRequests.length === 0 ? (
+          {!userLoading && receivedRequests.length === 0 ? (
             <Card className="glass border-0"><CardContent className="p-8 text-center"><Inbox className="h-12 w-12 text-muted-foreground mx-auto mb-4" /><h3 className="text-lg font-medium">No requests received</h3><p className="text-muted-foreground text-sm">When someone requests to join your trip, it will appear here.</p></CardContent></Card>
           ) : (
             receivedRequests.map((request) => (
@@ -180,17 +175,19 @@ const Requests = () => {
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
-                      <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-                        <span className="text-white font-semibold">{request.senderName.split(' ').map(n=>n[0]).join('')}</span>
-                      </div>
-                      <div>
-                        <p className="font-semibold">{request.senderName}</p>
-                      </div>
+                      <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center"><span className="text-white font-semibold">{request.senderName.split(' ').map(n=>n[0]).join('')}</span></div>
+                      <div><p className="font-semibold">{request.senderName}</p></div>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(request.status)}`}>{getStatusText(request.status)}</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {request.tripDetails && (
+                    <div className="space-y-2 text-sm border-t border-white/10 pt-3 mt-3">
+                        <div className="flex items-center space-x-2"><MapPin className="h-4 w-4 text-primary" /><span>{request.tripDetails.direction}</span></div>
+                        <div className="flex items-center space-x-2"><Clock className="h-4 w-4 text-accent" /><span>{new Date(request.tripDetails.date).toLocaleDateString()} at {request.tripDetails.time}</span></div>
+                    </div>
+                  )}
                   <div className="text-xs text-muted-foreground">Received: {formatDate(request.sentAt)}</div>
                   {request.status === 'pending' && (
                     <div className="flex space-x-3">
@@ -208,7 +205,7 @@ const Requests = () => {
                             <p className="text-muted-foreground">Start the conversation.</p>
                           </div>
                         </div>
-                        <Button onClick={() => navigate(`/chat/${(request as any).matchId}`, { state: { otherUserName: request.senderName } })} size="sm">Go to Chat <ArrowRight className="h-4 w-4 ml-2" /></Button>
+                        <Button onClick={() => navigate(`/chat/${request.matchId}`, { state: { otherUserName: request.senderName } })} size="sm">Go to Chat <ArrowRight className="h-4 w-4 ml-2" /></Button>
                       </div>
                     </div>
                   )}
@@ -217,29 +214,29 @@ const Requests = () => {
             ))
           )}
         </TabsContent>
-
         <TabsContent value="sent" className="space-y-4 mt-4">
-            {sentRequests.length === 0 ? (
-                 <Card className="glass border-0"><CardContent className="p-8 text-center"><Send className="h-12 w-12 text-muted-foreground mx-auto mb-4" /><h3 className="text-lg font-medium">No requests sent</h3><p className="text-muted-foreground text-sm">Your sent requests to join other trips will appear here.</p></CardContent></Card>
+            {!userLoading && sentRequests.length === 0 ? (
+                 <Card className="glass border-0"><CardContent className="p-8 text-center"><Send className="h-12 w-12 text-muted-foreground mx-auto mb-4" /><h3 className="text-lg font-medium">No requests sent</h3><p className="text-muted-foreground text-sm">Your sent requests will appear here.</p></CardContent></Card>
             ): (
                 sentRequests.map((request) => (
                     <Card key={request.id} className="glass border-0">
                         <CardHeader>
                             <CardTitle className="flex items-center justify-between">
                                 <div className="flex items-center space-x-3">
-                                    <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-                                        <span className="text-white font-semibold">{request.hostName.split(' ').map(n=>n[0]).join('')}</span>
-                                    </div>
-                                    <div>
-                                        <p className="font-semibold">{request.hostName}</p>
-                                        <p className="text-sm text-muted-foreground">Trip Host</p>
-                                    </div>
+                                    <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center"><span className="text-white font-semibold">{request.hostName.split(' ').map(n=>n[0]).join('')}</span></div>
+                                    <div><p className="font-semibold">{request.hostName}</p><p className="text-sm text-muted-foreground">Trip Host</p></div>
                                 </div>
                                 <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(request.status)}`}>{getStatusText(request.status)}</span>
                             </CardTitle>
                         </CardHeader>
                          <CardContent className="space-y-2">
-                             <div className="text-xs text-muted-foreground">Sent: {formatDate(request.sentAt)}</div>
+                            {request.tripDetails && (
+                                <div className="space-y-2 text-sm border-t border-white/10 pt-2 mt-2">
+                                    <div className="flex items-center space-x-2"><MapPin className="h-4 w-4 text-primary" /><span>{request.tripDetails.direction}</span></div>
+                                    <div className="flex items-center space-x-2"><Clock className="h-4 w-4 text-accent" /><span>{new Date(request.tripDetails.date).toLocaleDateString()} at {request.tripDetails.time}</span></div>
+                                </div>
+                            )}
+                             <div className="text-xs text-muted-foreground pt-2">Sent: {formatDate(request.sentAt)}</div>
                         </CardContent>
                     </Card>
                 ))

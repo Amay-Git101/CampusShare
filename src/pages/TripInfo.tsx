@@ -13,7 +13,7 @@ import { Plane, AlertCircle, HelpCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useUser } from '../context/UserContext';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 
 const TripInfo = () => {
   const navigate = useNavigate();
@@ -34,46 +34,47 @@ const TripInfo = () => {
       return;
     }
 
-    const requiredFields: (keyof typeof formData)[] = ['direction', 'date', 'time', 'buffer'];
-    const missingField = requiredFields.find(field => !formData[field]);
-    
-    if (missingField) {
-      toast({
-        title: "Missing Information",
-        description: `Please fill in all required fields.`,
-        variant: "destructive"
-      });
-      return;
-    }
-
     setIsLoading(true);
     try {
-      await addDoc(collection(db, "trips"), {
-        hostUid: user.uid,
-        name: user.fullName,
-        direction: formData.direction,
-        date: formData.date,
-        time: formData.time,
-        buffer: formData.buffer,
-        details: "", // Details field is now empty
-        status: "open",
-        createdAt: serverTimestamp(),
-      });
+        const tripsRef = collection(db, "trips");
+        const q = query(tripsRef, where("hostUid", "==", user.uid), where("status", "==", "open"));
+        const querySnapshot = await getDocs(q);
 
-      toast({
-        title: "Trip Created Successfully!",
-        description: "Your trip is now visible to other students.",
-      });
-      
-      navigate('/matches');
+        if (querySnapshot.size >= 2) {
+            toast({
+                title: "Trip Limit Reached",
+                description: "You can only have a maximum of two active trips at a time.",
+                variant: "destructive",
+            });
+            setIsLoading(false); // Stop loading if limit is reached
+            return;
+        }
+
+        const requiredFields: (keyof typeof formData)[] = ['direction', 'date', 'time', 'buffer'];
+        if (requiredFields.some(field => !formData[field])) {
+            toast({ title: "Missing Information", description: `Please fill in all required fields.`, variant: "destructive" });
+            setIsLoading(false); // Stop loading if fields are missing
+            return;
+        }
+
+        await addDoc(collection(db, "trips"), {
+            hostUid: user.uid,
+            name: user.fullName,
+            direction: formData.direction,
+            date: formData.date,
+            time: formData.time,
+            buffer: formData.buffer,
+            details: "",
+            status: "open",
+            createdAt: serverTimestamp(),
+        });
+
+        toast({ title: "Trip Created Successfully!", description: "Your trip is now visible to other students." });
+        navigate('/matches');
 
     } catch (error) {
       console.error("Error creating trip:", error);
-      toast({
-        title: "Error",
-        description: "Could not create your trip. Please try again.",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: "Could not create your trip. Please try again.", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -93,7 +94,7 @@ const TripInfo = () => {
       { value: 'Airport → College', label: 'Airport → College', description: 'Returning from a flight'},
       { value: 'College → Railway Station', label: 'College → Railway Station', description: 'Catching a train'},
       { value: 'Railway Station → College', label: 'Railway Station → College', description: 'Arriving by train'},
-  ]
+  ];
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-20 md:pb-8">
@@ -198,7 +199,7 @@ const TripInfo = () => {
                 <div className="space-y-1">
                   <p className="font-medium text-primary">Important Notes</p>
                   <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
-                    <li>You can only have one active trip at a time.</li>
+                    <li>You can only have up to two active trips at a time.</li>
                     <li>Each trip allows only one successful match.</li>
                     <li>Trip data will be automatically deleted 24 hours after a match.</li>
                   </ul>
@@ -220,4 +221,4 @@ const TripInfo = () => {
   );
 };
 
-export default TripInfo;
+export default TripInfo; // This line was missing

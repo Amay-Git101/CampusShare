@@ -5,12 +5,12 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Send, Phone, ArrowLeft, User } from 'lucide-react';
+import { Send, Phone, ArrowLeft } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useUser } from '../context/UserContext';
+import { cn } from '@/lib/utils';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { cn } from '@/lib/utils';
 
 // Interface for a chat message from Firestore
 interface Message {
@@ -35,6 +35,7 @@ type ChatRole = 'sender' | 'receiver';
 const Chat = () => {
   const { chatId } = useParams<{ chatId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useUser();
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -42,7 +43,7 @@ const Chat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
-  const [otherUser, setOtherUser] = useState<{ uid: string, name: string, whatsapp?: string } | null>(null);
+  const [otherUser, setOtherUser] = useState<{ uid: string, name: string } | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<ChatRole | null>(null);
 
   // Fetch match details and listen for messages
@@ -51,19 +52,19 @@ const Chat = () => {
 
     const matchRef = doc(db, 'matches', chatId);
 
-    // Fetch initial match data
-    getDoc(matchRef).then(docSnap => {
+    const unsubscribeMatch = onSnapshot(matchRef, (docSnap) => {
         if (docSnap.exists()) {
             const matchData = { id: docSnap.id, ...docSnap.data() } as Match;
             setMatch(matchData);
 
-            // Determine roles and other user's info
-            const otherUserId = matchData.users.find(uid => uid !== user.uid);
-            if (otherUserId) {
-                setOtherUser({ uid: otherUserId, name: matchData.userNames[otherUserId] });
-                // Assuming trip creator is the receiver
-                const tripCreatorId = Object.keys(matchData.userNames).find(uid => uid !== otherUserId);
-                setCurrentUserRole(user.uid === tripCreatorId ? 'receiver' : 'sender');
+            if (!otherUser) { // Set other user info only once
+                const otherUserId = matchData.users.find(uid => uid !== user.uid);
+                if (otherUserId) {
+                    setOtherUser({ uid: otherUserId, name: matchData.userNames[otherUserId] });
+                    // This logic assumes the host of the trip is the 'receiver' of the request
+                    const tripHostId = matchData.users.find(uid => uid !== user.uid); 
+                    setCurrentUserRole(user.uid === tripHostId ? 'sender' : 'receiver');
+                }
             }
         } else {
             toast({ title: "Error", description: "Chat not found.", variant: "destructive" });
@@ -71,16 +72,18 @@ const Chat = () => {
         }
     });
 
-    // Set up real-time listener for messages
     const messagesQuery = query(collection(matchRef, "messages"), orderBy("timestamp", "asc"));
-    const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
+    const unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
       const messagesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
       setMessages(messagesData);
       setLoading(false);
     });
 
-    return () => unsubscribe();
-  }, [chatId, user, navigate]);
+    return () => {
+        unsubscribeMatch();
+        unsubscribeMessages();
+    };
+  }, [chatId, user, navigate, otherUser]);
 
   // Scroll to bottom on new message
   useEffect(() => {
@@ -103,9 +106,12 @@ const Chat = () => {
   };
 
   const handleRevealNumber = async () => {
-    if (!chatId || !currentUserRole) return;
+    if (!chatId || !currentUserRole || !match) return;
     const matchRef = doc(db, "matches", chatId);
-    const fieldToUpdate = currentUserRole === 'receiver' ? { hostNumberRevealed: true } : { senderNumberRevealed: true };
+    
+    // Determine which field to update based on the current user's role in the match
+    const isHost = match.users[0] === user?.uid; // Simple logic: first user is host
+    const fieldToUpdate = isHost ? { hostNumberRevealed: true } : { senderNumberRevealed: true };
     
     try {
         await updateDoc(matchRef, fieldToUpdate);
@@ -124,7 +130,7 @@ const Chat = () => {
     ? ["Hey! Let's split the fare equally. Cool?", "I'll book the cab and share the details here.", "Can we meet near the main gate for pickup?"]
     : ["Sounds good! I'm okay with splitting the fare.", "Thanks! Share the cab details once booked.", "Main gate works for me. See you there!"];
 
-  if (loading || !match) {
+  if (loading) {
       return <div className="text-center text-white p-10">Loading Chat...</div>;
   }
 
@@ -134,7 +140,7 @@ const Chat = () => {
         <CardHeader className="flex flex-row items-center justify-between border-b border-white/10 p-4">
           <div className="flex items-center space-x-2">
             <Button variant="ghost" size="icon" onClick={() => navigate('/requests')}><ArrowLeft className="h-5 w-5" /></Button>
-            <CardTitle className="text-lg">{otherUser?.name}</CardTitle>
+            <CardTitle className="text-lg">{otherUser?.name || "Match"}</CardTitle>
           </div>
           <Button onClick={handleRevealNumber} disabled={isNumberRevealed} size="sm" variant="outline" className="glass hover:bg-white/10">
             <Phone className="h-4 w-4 mr-2" />
