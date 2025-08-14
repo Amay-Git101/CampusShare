@@ -34,11 +34,11 @@ interface TripDetails {
 const Requests = () => {
   const [sentRequests, setSentRequests] = useState<Request[]>([]);
   const [receivedRequests, setReceivedRequests] = useState<Request[]>([]);
-  const { user, loading: userLoading } = useUser(); // Get loading state from context
+  const { user, loading: userLoading } = useUser(); // Use loading state from context
   const navigate = useNavigate();
 
   useEffect(() => {
-    // **THE FIX:** Wait until the user object is fully loaded before trying to fetch data.
+    // **THE FIX:** Wait until the user object is fully loaded before setting up listeners.
     if (userLoading || !user) {
       return; 
     }
@@ -61,6 +61,8 @@ const Requests = () => {
       const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Request));
       const withDetails = await fetchTripDetails(requestsData);
       setReceivedRequests(withDetails);
+    }, (error) => {
+        console.error("Error fetching received requests:", error);
     });
 
     // Listener for requests SENT by the current user
@@ -69,6 +71,8 @@ const Requests = () => {
       const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Request));
       const withDetails = await fetchTripDetails(requestsData);
       setSentRequests(withDetails);
+    }, (error) => {
+        console.error("Error fetching sent requests:", error);
     });
 
     // Cleanup listeners when the component unmounts
