@@ -1,32 +1,61 @@
-/**
- * Import function triggers from their respective submodules:
- *
- * import {onCall} from "firebase-functions/v2/https";
- * import {onDocumentWritten} from "firebase-functions/v2/firestore";
- *
- * See a full list of supported triggers at https://firebase.google.com/docs/functions
- */
-
-import {setGlobalOptions} from "firebase-functions";
-import {onRequest} from "firebase-functions/https";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 
-// Start writing functions
-// https://firebase.google.com/docs/functions/typescript
+// Initialize the Firebase Admin SDK
+admin.initializeApp();
 
-// For cost control, you can set the maximum number of containers that can be
-// running at the same time. This helps mitigate the impact of unexpected
-// traffic spikes by instead downgrading performance. This limit is a
-// per-function limit. You can override the limit for each function using the
-// `maxInstances` option in the function's options, e.g.
-// `onRequest({ maxInstances: 5 }, (req, res) => { ... })`.
-// NOTE: setGlobalOptions does not apply to functions using the v1 API. V1
-// functions should each use functions.runWith({ maxInstances: 10 }) instead.
-// In the v1 API, each function can only serve one request per container, so
-// this will be the maximum concurrent request count.
-setGlobalOptions({ maxInstances: 10 });
+/**
+ * Cloud Function to send a notification when a new trip request is created.
+ * This uses the v2 API, which is strongly typed and simpler.
+ */
+export const onNewRequest = onDocumentCreated("requests/{requestId}", async (event) => {
+  // The event.data is the new document snapshot
+  const snap = event.data;
+  if (!snap) {
+    logger.log("No data associated with the event, exiting function.");
+    return;
+  }
+  const requestData = snap.data();
+  const hostUid = requestData.hostUid;
+  const senderName = requestData.senderName;
 
-// export const helloWorld = onRequest((request, response) => {
-//   logger.info("Hello logs!", {structuredData: true});
-//   response.send("Hello from Firebase!");
-// });
+  // Get the host's user document to find their FCM token
+  const userDocRef = admin.firestore().collection("users").doc(hostUid);
+  const userDoc = await userDocRef.get();
+
+  if (!userDoc.exists) {
+    logger.log(`User document for host UID ${hostUid} not found.`);
+    return;
+  }
+
+  const userData = userDoc.data();
+  const fcmToken = userData?.fcmToken;
+
+  if (!fcmToken) {
+    logger.log(`No FCM token for user ${hostUid}, cannot send notification.`);
+    return;
+  }
+
+  // Construct the notification message payload with the correct types
+  const message: admin.messaging.Message = {
+    token: fcmToken,
+    notification: {
+      title: "You have a new trip request! 🚗",
+      body: `${senderName} wants to join your trip.`,
+    },
+    webpush: {
+      fcmOptions: { // Note: It's 'fcmOptions' not 'fcm_options'
+        link: "https://your-app-url.com/requests",
+      },
+    },
+  };
+
+  try {
+    logger.log(`Sending notification to token: ${fcmToken}`);
+    await admin.messaging().send(message);
+    logger.log("Successfully sent notification.");
+  } catch (error) {
+    logger.error("Error sending notification:", error);
+  }
+});
