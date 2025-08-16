@@ -1,6 +1,8 @@
+// src/lib/firebase.ts
+
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { getFirestore } from "firebase/firestore"; // 1. Import getFirestore
+import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyACtiKoG-rVMWrqU0aEofTOFUO_wWJJEVI",
@@ -14,7 +16,8 @@ const firebaseConfig = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 const auth = getAuth(app);
-const db = getFirestore(app); // 2. Initialize the Firestore database
+const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
 
-export { auth, db, googleProvider }; // 3. Export db
+// THE FIX: Added 'app' to the export list
+export { app, auth, db, googleProvider };

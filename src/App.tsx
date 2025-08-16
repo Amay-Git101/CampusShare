@@ -16,14 +16,32 @@ import Settings from "./pages/Settings";
 import FAQ from "./pages/FAQ";
 import Terms from "./pages/Terms";
 import NotFound from "./pages/NotFound";
-import Chat from "./pages/Chat"; // Import the new Chat component
+import Chat from "./pages/Chat";
 import { useState, useEffect } from "react";
-import { UserProvider } from './context/UserContext';
+import { UserProvider, useUser } from './context/UserContext';
+import { requestNotificationPermission } from '@/lib/firebase-messaging-utils';
 
 const queryClient = new QueryClient();
 
 const isAuthenticated = () => {
   return localStorage.getItem('cabpool_authenticated') === 'true';
+};
+
+// A new component to handle the notification logic
+const NotificationHandler = () => {
+  const { user } = useUser();
+  const [permissionRequested, setPermissionRequested] = useState(false);
+
+  useEffect(() => {
+    // Check if there's a user and if we haven't already asked for permission this session
+    if (user && !permissionRequested) {
+      console.log("User found, requesting notification permission...");
+      requestNotificationPermission(user.uid);
+      setPermissionRequested(true); // Mark as requested to prevent re-prompting
+    }
+  }, [user, permissionRequested]);
+
+  return null; // This component doesn't render anything
 };
 
 const App = () => {
@@ -48,6 +66,7 @@ const App = () => {
               </Routes>
             ) : (
               <Layout>
+                <NotificationHandler /> {/* Add the handler here */}
                 <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/trip-info" element={<TripInfo />} />
@@ -57,7 +76,7 @@ const App = () => {
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/faq" element={<FAQ />} />
                   <Route path="/terms" element={<Terms />} />
-                  <Route path="/chat/:chatId" element={<Chat />} /> {/* Add the new chat route */}
+                  <Route path="/chat/:chatId" element={<Chat />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Layout>
