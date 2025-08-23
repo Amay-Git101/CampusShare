@@ -9,7 +9,7 @@ import { Send, Phone, ArrowLeft } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useUser } from '../context/UserContext';
 import { cn } from '@/lib/utils';
-import { db } from '@/lib/firebase';
+import { db } from '@/lib/supabase';
 import { doc, getDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc } from 'firebase/firestore';
 
 // Interface for a chat message from Firestore

@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Settings as SettingsIcon, Phone, User, LogOut } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { Link, useNavigate } from 'react-router-dom'; // Import Link
-import { auth, db } from '@/lib/firebase';
+import { auth, db } from '@/lib/supabase';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 

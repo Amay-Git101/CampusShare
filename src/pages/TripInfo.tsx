@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Plane, AlertCircle, HelpCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useUser } from '../context/UserContext';
-import { db } from '@/lib/firebase';
+import { db } from '@/lib/supabase';
 import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 
 const TripInfo = () => {

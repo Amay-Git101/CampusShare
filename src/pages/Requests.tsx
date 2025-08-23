@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Send, Inbox, Check, X, MessageSquare, Clock, MapPin, ArrowRight } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useUser } from '../context/UserContext';
-import { db } from '@/lib/firebase';
+import { db } from '@/lib/supabase';
 import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 
 // Interfaces for our data structures

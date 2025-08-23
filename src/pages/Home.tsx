@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import { Plus, Search, Mail, Settings, MapPin, Users, User, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { auth, db } from '@/lib/firebase';
+import { auth, db } from '@/lib/supabase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 

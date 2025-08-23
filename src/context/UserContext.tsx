@@ -1,6 +1,6 @@
 // src/context/UserContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { auth, db } from '@/lib/firebase';
+import { auth, db } from '@/lib/supabase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 
