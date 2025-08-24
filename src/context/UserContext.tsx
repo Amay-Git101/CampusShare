@@ -1,77 +1,88 @@
 // src/context/UserContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { auth, db } from '@/lib/supabase';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { supabase } from '@/lib/supabase';
+import { User } from '@supabase/supabase-js';
 
 interface UserProfile {
-  uid: string;
-  fullName: string;
+  id: string;
+  full_name: string;
   email: string;
-  registrationNumber: string;
-  whatsappNumber: string;
+  registration_number: string;
+  whatsapp_number: string;
   initials: string;
 }
 
 interface UserContextType {
-  user: UserProfile | null;
+  user: (UserProfile & { supabaseUser: User }) | null;
   loading: boolean;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<UserProfile | null>(null);
+  const [user, setUser] = useState<UserContextType['user']>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      try {
-        if (currentUser) {
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          const userDoc = await getDoc(userDocRef);
+    const fetchUserAndProfile = async () => {
+      setLoading(true);
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      const supabaseUser = session?.user;
 
-          let fullName = '';
-          let registrationNumber = '';
+      if (supabaseUser) {
+        // Now, fetch the profile from your 'profiles' table in Supabase
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', supabaseUser.id)
+          .single();
 
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            fullName = userData.fullName;
-            registrationNumber = userData.registrationNumber;
-          } else {
-            fullName = currentUser.displayName || 'New User';
-            const regMatch = fullName.match(/\(([^)]+)\)/);
-            if (regMatch) {
-              registrationNumber = regMatch[1];
-              fullName = fullName.replace(/\s*\(([^)]+)\)/, '').trim();
-            }
-          }
-          
-          setUser({
-            uid: currentUser.uid,
-            fullName,
-            registrationNumber,
-            email: currentUser.email || '',
-            whatsappNumber: userDoc.exists() ? userDoc.data().whatsappNumber : '',
-            initials: fullName.split(' ').map((n: string) => n[0]).join(''),
-          });
-        } else {
-          setUser(null);
+        if (profileError) {
+          console.error("Error fetching profile:", profileError.message);
         }
-      } catch (error) {
-        console.error("Error in UserProvider:", error);
+        
+        // Extract full_name for initials, fallback to email if not available yet
+        const nameForInitials = profile?.full_name || supabaseUser.email || 'G';
+        const initials = nameForInitials.split(' ').map((n: string) => n[0]).join('').toUpperCase();
+
+        setUser({
+          ...(profile || {
+            // Provide default values if profile is not yet created
+            id: supabaseUser.id,
+            full_name: supabaseUser.user_metadata.full_name || 'New User',
+            email: supabaseUser.email || '',
+            registration_number: '',
+            whatsapp_number: ''
+          }),
+          initials,
+          supabaseUser: supabaseUser
+        });
+
+      } else {
         setUser(null);
-      } finally {
+      }
+      setLoading(false);
+    };
+
+    fetchUserAndProfile();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        fetchUserAndProfile();
+      } else {
+        setUser(null);
         setLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
   return (
     <UserContext.Provider value={{ user, loading }}>
-      {children}
+      {!loading && children}
     </UserContext.Provider>
   );
 };

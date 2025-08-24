@@ -5,8 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Car, Users, Shield } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useNavigate } from "react-router-dom";
-import { signInWithPopup } from 'firebase/auth';
-import { auth, googleProvider } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 
 // Define the props interface
 interface AuthProps {
@@ -18,26 +17,21 @@ const Auth: React.FC<AuthProps> = ({ setAuthenticated }) => {
 
   const handleGoogleSignIn = async () => {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+          redirectTo: window.location.origin, // Redirect back to your app after authentication
+        },
+      });
 
-      const email = result.user.email;
-      if (!email || !email.endsWith('@srmist.edu.in')) {
-        await result.user.delete(); // Important: sign out and delete the user if email is invalid
-        toast({
-          title: "Invalid Email",
-          description: "Please sign in with your official SRM email address (@srmist.edu.in)",
-          variant: "destructive"
-        });
-        return;
+      if (error) {
+        throw error;
       }
 
-      toast({
-        title: "Logged in with Google",
-        description: "Welcome! You have signed in successfully."
-      });
-      localStorage.setItem('cabpool_authenticated', 'true');
-      setAuthenticated(true);
-      navigate('/');
     } catch (error: any) {
       toast({
         title: "Google Sign-In Error",
@@ -64,6 +58,36 @@ const Auth: React.FC<AuthProps> = ({ setAuthenticated }) => {
       description: "Split cab fares and travel affordably"
     }
   ];
+
+  React.useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const email = session.user.email;
+        if (!email || !email.endsWith('@srmist.edu.in')) {
+          toast({
+            title: "Invalid Email",
+            description: "Please sign in with your official SRM email address (@srmist.edu.in)",
+            variant: "destructive"
+          });
+          supabase.auth.signOut();
+          localStorage.removeItem('cabpool_authenticated');
+          setAuthenticated(false);
+        } else {
+          toast({
+            title: "Logged in with Google",
+            description: "Welcome! You have signed in successfully."
+          });
+          localStorage.setItem('cabpool_authenticated', 'true');
+          setAuthenticated(true);
+          navigate('/');
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [navigate, setAuthenticated]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0a0f2c] via-[#101935] to-[#0f1629] flex items-center justify-center p-4">

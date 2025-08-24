@@ -7,80 +7,47 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { User, Mail, Phone, AlertTriangle, CheckCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { auth, db } from '@/lib/supabase';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { supabase } from '@/lib/supabase';
+import { useUser } from '@/context/UserContext';
 import { useNavigate } from 'react-router-dom';
 
 const Profile = () => {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, loading: userLoading } = useUser();
+  const navigate = useNavigate();
+
   const [formData, setFormData] = useState({
-    fullName: "",
+    full_name: "",
     email: "",
-    registrationNumber: "",
-    whatsappNumber: "",
+    registration_number: "",
+    whatsapp_number: "",
     agreedToTerms: false
   });
   const [isEditing, setIsEditing] = useState(false);
-  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser && currentUser.email) {
-        setUser(currentUser);
+    if (user) {
+      // Pre-fill form with data from UserContext
+      setFormData({
+        full_name: user.full_name || user.supabaseUser.user_metadata.full_name || '',
+        email: user.email || user.supabaseUser.email || '',
+        registration_number: user.registration_number || '',
+        whatsapp_number: user.whatsapp_number || '',
+        agreedToTerms: !!user.whatsapp_number // If whatsapp number exists, they must have agreed
+      });
 
-        let fullName = currentUser.displayName || '';
-        let registrationNumber = '';
-
-        const regNumberMatch = fullName.match(/\(([^)]+)\)/);
-        if (regNumberMatch) {
-          registrationNumber = regNumberMatch[1];
-          fullName = fullName.replace(/\s*\(([^)]+)\)/, '').trim();
-        } else {
-          registrationNumber = currentUser.email.split('@')[0].split('.').pop() || '';
-        }
-        
-        const userDocRef = doc(db, 'users', currentUser.uid);
-        const userDoc = await getDoc(userDocRef);
-        
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          setFormData({
-            fullName: fullName,
-            email: currentUser.email,
-            registrationNumber: registrationNumber.toUpperCase(),
-            whatsappNumber: userData.whatsappNumber || "",
-            agreedToTerms: true 
-          });
-          if (userData.whatsappNumber) {
-            setIsEditing(false);
-          } else {
-            setIsEditing(true);
-          }
-        } else {
-          setFormData(prev => ({
-            ...prev,
-            fullName: fullName,
-            email: currentUser.email,
-            registrationNumber: registrationNumber.toUpperCase(),
-            whatsappNumber: '',
-            agreedToTerms: false
-          }));
-          setIsEditing(true);
-        }
+      // If the user's profile is incomplete (e.g., no whatsapp_number), force editing mode.
+      if (!user.whatsapp_number) {
+        setIsEditing(true);
       }
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
+    }
+  }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
-    
-    if (!formData.whatsappNumber || formData.whatsappNumber.replace(/^\+91-/, '').length !== 10) {
+
+    if (!formData.whatsapp_number || formData.whatsapp_number.replace(/^\+91-/, '').length !== 10) {
       toast({ title: "Invalid Number", description: "WhatsApp number must be 10 digits.", variant: "destructive" });
       return;
     }
@@ -89,23 +56,36 @@ const Profile = () => {
       return;
     }
 
+    setLoading(true);
+
+    // Extract registration number from email if it's not already set
+    const registrationNumber = formData.registration_number || user.supabaseUser.email?.split('@')[0].split('.').pop()?.toUpperCase() || '';
+    const fullNameFromMetadata = user.supabaseUser.user_metadata.full_name.replace(/\s*\(([^)]+)\)/, '').trim();
+
     try {
-      const userDocRef = doc(db, 'users', user.uid);
-      await setDoc(userDocRef, {
-        email: user.email,
-        fullName: formData.fullName,
-        registrationNumber: formData.registrationNumber,
-        whatsappNumber: formData.whatsappNumber
-      }, { merge: true });
+      const { error } = await supabase.from('profiles').upsert({
+        id: user.id, // The user's auth ID is the primary key
+        updated_at: new Date().toISOString(),
+        full_name: fullNameFromMetadata,
+        email: formData.email,
+        registration_number: registrationNumber,
+        whatsapp_number: formData.whatsapp_number,
+      });
+
+      if (error) throw error;
 
       setIsEditing(false);
       toast({
         title: "Profile Updated!",
         description: "Your profile has been saved successfully.",
       });
-    } catch (error) {
+      // Optionally, you can trigger a refresh of the user context here if needed,
+      // but the onAuthStateChange should handle it on next load.
+    } catch (error: any) {
       console.error("Error saving profile: ", error);
-      toast({ title: "Error", description: "Could not save your profile.", variant: "destructive" });
+      toast({ title: "Error", description: "Could not save your profile. " + error.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
     }
   };
   
@@ -114,10 +94,10 @@ const Profile = () => {
     if (cleanNumber.length > 10) {
       cleanNumber = cleanNumber.slice(0, 10);
     }
-    setFormData({...formData, whatsappNumber: `+91-${cleanNumber}`});
+    setFormData({...formData, whatsapp_number: `+91-${cleanNumber}`});
   };
 
-  if (loading) {
+  if (userLoading) {
     return <div className="text-center text-white">Loading profile...</div>;
   }
 
@@ -143,11 +123,11 @@ const Profile = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-muted-foreground">Full Name</Label>
-                <Input value={formData.fullName} readOnly className="glass border-white/10 bg-white/5 cursor-not-allowed" />
+                <Input value={formData.full_name} readOnly className="glass border-white/10 bg-white/5 cursor-not-allowed" />
               </div>
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-muted-foreground">Registration Number</Label>
-                <Input value={formData.registrationNumber} readOnly className="glass border-white/10 bg-white/5 cursor-not-allowed" />
+                <Input value={formData.registration_number} readOnly className="glass border-white/10 bg-white/5 cursor-not-allowed" />
               </div>
             </div>
 
@@ -165,7 +145,7 @@ const Profile = () => {
                 <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="whatsapp"
-                  value={formData.whatsappNumber}
+                  value={formData.whatsapp_number}
                   onChange={(e) => handleWhatsAppChange(e.target.value)}
                   placeholder="+91-XXXXXXXXXX"
                   className="pl-9 glass border-white/20 focus:border-primary"
@@ -210,9 +190,10 @@ const Profile = () => {
               {isEditing ? (
                 <Button
                   type="submit"
+                  disabled={loading}
                   className="flex-1 bg-gradient-to-r from-primary to-accent hover:from-primary/80 hover:to-accent/80 text-white font-medium py-3 rounded-xl glow-blue transition-all duration-300"
                 >
-                  Save Profile
+                  {loading ? 'Saving...' : 'Save Profile'}
                 </Button>
               ) : (
                 <Button
